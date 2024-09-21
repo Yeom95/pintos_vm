@@ -141,7 +141,9 @@ vm_get_frame (void) {
 	struct frame *frame = NULL;
 	/* TODO: Fill this function. */
 	frame = (struct frame*)malloc(sizeof(struct frame));
+	frame->page = NULL;
 	frame->kva = palloc_get_page(PAL_USER);
+	list_init(&frame_table.frames);
 
 	if(frame->kva == NULL){
 		frame = vm_evict_frame();
