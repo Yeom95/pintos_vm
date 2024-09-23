@@ -115,7 +115,7 @@ switch (f->R.rax)
 void check_address(void *addr) {
     struct thread *curr = thread_current();
 
-    if (is_kernel_vaddr(addr) || addr == NULL || pml4_get_page(curr->pml4, addr) == NULL)
+    if (is_kernel_vaddr(addr) || addr == NULL)
         exit_syscall(-1);
 }
 
