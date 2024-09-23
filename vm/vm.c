@@ -195,8 +195,21 @@ vm_try_handle_fault (struct intr_frame *f UNUSED, void *addr UNUSED,
 	struct page *page = NULL;
 	/* TODO: Validate the fault */
 	/* TODO: Your code goes here */
+	if(addr == NULL || is_kernel_vaddr(addr))
+		return false;
 
-	return vm_do_claim_page (page);
+	//physical page가 존재하지 않을 경우
+	if(not_present){
+			page = spt_find_page(spt,addr);
+			if(page == NULL)
+				return false;
+			if(write == 1 && page->writable == 0)
+				return false;
+
+			return vm_do_claim_page(page);
+	}
+
+	return false;
 }
 
 /* Free the page.
