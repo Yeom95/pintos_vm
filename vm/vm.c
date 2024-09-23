@@ -293,4 +293,11 @@ void
 supplemental_page_table_kill (struct supplemental_page_table *spt UNUSED) {
 	/* TODO: Destroy all the supplemental_page_table hold by thread and
 	 * TODO: writeback all the modified contents to the storage. */
+	hash_clear(&spt->hash_table,hash_page_destroy);
+}
+
+void hash_page_destroy(struct hash_elem *e,void *aux){
+	struct page *page = hash_entry(e,struct page,hash_elem);
+	destroy(page);
+	free(page);
 }
