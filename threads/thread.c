@@ -476,6 +476,10 @@ init_thread(struct thread *t, const char *name, int priority)
     /** -----------------------  */
 #endif
 
+#ifdef VM
+	t->rsp_point = 0;
+#endif
+
 }
 
 /* Chooses and returns the next thread to be scheduled.  Should

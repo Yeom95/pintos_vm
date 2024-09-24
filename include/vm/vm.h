@@ -5,6 +5,9 @@
 #include "threads/palloc.h"
 #include "threads/synch.h"
 
+/* max stack size is 1MB */
+#define MAX_STACK_POINT (1 << 20)
+
 enum vm_type {
 	/* page not initialized */
 	VM_UNINIT = 0,
