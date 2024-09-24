@@ -180,6 +180,7 @@ vm_get_frame (void) {
 /* Growing the stack. */
 static void
 vm_stack_growth (void *addr UNUSED) {
+	vm_alloc_page(VM_ANON | VM_MARKER_0,addr,1);
 }
 
 /* Handle the fault on write_protected page */
@@ -200,6 +201,22 @@ vm_try_handle_fault (struct intr_frame *f UNUSED, void *addr UNUSED,
 
 	//physical page가 존재하지 않을 경우
 	if(not_present){
+		uint64_t current_rsp_point;
+		if(user)
+			current_rsp_point = f->rsp;
+		else
+			current_rsp_point = thread_current()->rsp_point;
+		
+		//rsp - 8이 페이지 할당한 만큼의 영역 내에 있고, addr값이 rsp -8이며 addr가 USER STACK보다 아래에 있을 경우
+		bool is_stack_allowance_range = (USER_STACK - MAX_STACK_POINT <= current_rsp_point - 8
+		&& current_rsp_point - 8 == addr && addr <= USER_STACK);
+		//rsp이 페이지 할당한 만큼의 영역 내에 있고, addr값이 rsp 영역 내부에 있으며 addr가 USER STACK보다 아래에 있을 경우
+		bool is_in_allowance_range = (USER_STACK - MAX_STACK_POINT <= current_rsp_point
+		&& current_rsp_point <= addr && addr <= USER_STACK);
+		
+		if(is_stack_allowance_range || is_in_allowance_range){
+			vm_stack_growth(pg_round_down(addr));
+		}
 			page = spt_find_page(spt,addr);
 			if(page == NULL)
 				return false;
