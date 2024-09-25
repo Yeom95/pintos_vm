@@ -18,6 +18,9 @@ typedef int pid_t;
 #include "threads/palloc.h"
 #include "userprog/process.h"
 
+/* Project 3: Virtual Memory */
+#include "include/vm/file.h"
+
 struct lock filesys_lock;
 /** -----------------------  */
 
@@ -57,7 +60,9 @@ void
 syscall_handler (struct intr_frame *f UNUSED) {
 	// TODO: Your implementation goes here.
 	// printf ("system call!\n");
+#ifdef VM
 	thread_current()->rsp_point = f->rsp;
+#endif
 switch (f->R.rax)
 	{
 	case SYS_HALT:
@@ -105,6 +110,14 @@ switch (f->R.rax)
 	case SYS_CLOSE:
 		close_syscall(f->R.rdi);
 		break;
+#ifdef VM
+	case SYS_MMAP:
+		f->R.rax = mmap_syscall(f->R.rdi,f->R.rsi,f->R.rdx,f->R.r10,f->R.r8);
+		break;
+	case SYS_MUNMAP:
+		munmap_syscall(f->R.rdi);
+		break;
+#endif
 	default:
 		exit_syscall(-1);
 		break;
@@ -245,6 +258,9 @@ int read_syscall(int fd, void *buffer, unsigned length){
 }
 
 int write_syscall(int fd, const void *buffer, unsigned length){
+#ifdef VM
+	check_valid_buffer(buffer,length,false);
+#endif
 	check_address(buffer);
 
 	lock_acquire(&filesys_lock);
@@ -307,5 +323,50 @@ void close_syscall(int fd){
 		file->dup_count--;
 	}
 done:
+	return;
+}
+
+void *mmap_syscall(void *addr, size_t length, int writable, int fd, off_t offset){
+	struct supplemental_page_table spt = thread_current()->spt;
+	
+	if(!addr || addr != pg_round_down(addr))
+		return NULL;
+
+	if(!is_user_vaddr(addr) || !is_user_vaddr(addr + length))
+		return NULL;
+
+	if(spt_find_page(&thread_current()->spt,addr))
+		return NULL;
+
+	if(offset != pg_round_down(offset) || offset % PGSIZE != 0)
+		return NULL;
+
+	struct file *file = get_file_from_fd(fd);
+	if(file == NULL)
+		return NULL;
+
+	/*if(length != pg_round_down(length)){
+		struct hash_iterator iterator;
+		hash_first(&iterator,&spt.hash_table);
+
+		while(hash_next(&iterator)){
+			struct page *found_page = hash_entry(hash_cur(&iterator),struct page,hash_elem);
+
+			if(found_page->va == addr)
+				return NULL;
+		}
+	}*/
+	if ((file >= STDIN && file <= STDERR) || file == NULL)
+        return NULL;
+
+	if(file_length(file) == 0 || (int) length <=0)
+		return NULL;
+
+	return do_mmap(addr,length,writable,file,offset);
+}
+
+void munmap_syscall(void *addr){
+	do_munmap(addr);
+
 	return;
 }
