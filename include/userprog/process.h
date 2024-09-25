@@ -37,4 +37,5 @@ struct lazy_load_arg{
     uint32_t read_bytes;
     uint32_t zero_bytes;
 };
+bool lazy_load_segment (struct page *page, void *aux);
 #endif
