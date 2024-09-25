@@ -125,12 +125,37 @@ switch (f->R.rax)
 }
 
 // ================================= utils =================================
-void check_address(void *addr) {
-    struct thread *curr = thread_current();
+
+#ifndef VM
+/** #Project 2: System Call */
+static void check_address(void *addr) {
+    THREAD *curr = thread_current();
+
+    if (is_kernel_vaddr(addr) || addr == NULL || pml4_get_page(curr->pml4, addr) == NULL)
+        exit_syscall(-1);
+}
+#else
+/** #Project 3: Anonymous Page */
+static struct page *check_address(void *addr) {
+    THREAD *curr = thread_current();
 
     if (is_kernel_vaddr(addr) || addr == NULL)
         exit_syscall(-1);
+
+    return spt_find_page(&curr->spt, addr);
 }
+
+/** Project 3: Memory Mapped Files - 버퍼 유효성 검사 */
+void check_valid_buffer(void *buffer, size_t size, bool writable) {
+    for (size_t i = 0; i < size; i++) {
+        /* buffer가 spt에 존재하는지 검사 */
+        struct page *page = check_address(buffer + i);
+
+        if (!page || (writable && !(page->writable)))
+            exit_syscall(-1);
+    }
+}
+#endif
 
 
 // ================================= system call functions =================================
@@ -228,28 +253,33 @@ int filesize_syscall(int fd){
 }
 
 int read_syscall(int fd, void *buffer, unsigned length){
+#ifdef VM
+    check_valid_buffer(buffer, length, true);
+#endif
 	check_address(buffer);
 
-	struct thread *curr = thread_current();
+    THREAD *curr = thread_current();
 	struct file *file = get_file_from_fd(fd);
 
-	if(file == NULL || file == STDOUT || file == STDERR)
+    if (file == NULL || file == STDOUT || file == STDERR)  // 빈 파일, stdout, stderr를 읽으려고 할 경우
 		return -1;
 
-	if(file == STDIN){
-		int i = 0;
+    if (file == STDIN) {  // stdin -> console로 직접 입력
+        int i = 0;        // 쓰레기 값 return 방지
 		char c; 
 		unsigned char *buf = buffer;
 
-		for (; i<length;i++){
+        for (; i < length; i++) {
 			c = input_getc();
 			*buf++ = c;
-			if(c=='\0')
+            if (c == '\0')
 				break;
 		}
+
 		return i;
 	}
 
+    // 그 외의 경우
     lock_acquire(&filesys_lock);
     off_t bytes = file_read(file, buffer, length);
     lock_release(&filesys_lock);
