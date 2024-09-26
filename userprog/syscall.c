@@ -253,9 +253,7 @@ int filesize_syscall(int fd){
 }
 
 int read_syscall(int fd, void *buffer, unsigned length){
-#ifdef VM
-    check_valid_buffer(buffer, length, true);
-#endif
+
 	check_address(buffer);
 
     THREAD *curr = thread_current();
@@ -288,9 +286,7 @@ int read_syscall(int fd, void *buffer, unsigned length){
 }
 
 int write_syscall(int fd, const void *buffer, unsigned length){
-#ifdef VM
-	check_valid_buffer(buffer,length,false);
-#endif
+
 	check_address(buffer);
 
 	lock_acquire(&filesys_lock);
