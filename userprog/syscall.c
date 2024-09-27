@@ -61,7 +61,7 @@ syscall_handler (struct intr_frame *f UNUSED) {
 	// TODO: Your implementation goes here.
 	// printf ("system call!\n");
 #ifdef VM
-	thread_current()->rsp_point = f->rsp;
+	thread_current()->stack_pointer = f->rsp;
 #endif
 switch (f->R.rax)
 	{
@@ -128,15 +128,15 @@ switch (f->R.rax)
 
 #ifndef VM
 /** #Project 2: System Call */
-static void check_address(void *addr) {
-    THREAD *curr = thread_current();
+void check_address(void *addr) {
+    thread_t *curr = thread_current();
 
     if (is_kernel_vaddr(addr) || addr == NULL || pml4_get_page(curr->pml4, addr) == NULL)
         exit_syscall(-1);
 }
 #else
 /** #Project 3: Anonymous Page */
-static struct page *check_address(void *addr) {
+struct page *check_address(void *addr) {
     THREAD *curr = thread_current();
 
     if (is_kernel_vaddr(addr) || addr == NULL)
@@ -254,7 +254,10 @@ int filesize_syscall(int fd){
 
 int read_syscall(int fd, void *buffer, unsigned length){
 
-	check_address(buffer);
+#ifdef VM
+    check_valid_buffer(buffer, length, true);
+#endif
+    check_address(buffer);
 
     THREAD *curr = thread_current();
 	struct file *file = get_file_from_fd(fd);
@@ -286,8 +289,10 @@ int read_syscall(int fd, void *buffer, unsigned length){
 }
 
 int write_syscall(int fd, const void *buffer, unsigned length){
-
-	check_address(buffer);
+#ifdef VM
+    check_valid_buffer(buffer, length, true);
+#endif
+    check_address(buffer);
 
 	lock_acquire(&filesys_lock);
 	struct thread *curr = thread_current();
@@ -354,41 +359,24 @@ done:
 
 void *mmap_syscall(void *addr, size_t length, int writable, int fd, off_t offset){
 	struct supplemental_page_table spt = thread_current()->spt;
-	
-	if(!addr || addr != pg_round_down(addr))
-		return NULL;
-
-	if(!is_user_vaddr(addr) || !is_user_vaddr(addr + length))
-		return NULL;
-
-	if(spt_find_page(&thread_current()->spt,addr))
-		return NULL;
-
-	if(offset != pg_round_down(offset) || offset % PGSIZE != 0)
-		return NULL;
-
-	struct file *file = get_file_from_fd(fd);
-	if(file == NULL)
-		return NULL;
-
-	/*if(length != pg_round_down(length)){
-		struct hash_iterator iterator;
-		hash_first(&iterator,&spt.hash_table);
-
-		while(hash_next(&iterator)){
-			struct page *found_page = hash_entry(hash_cur(&iterator),struct page,hash_elem);
-
-			if(found_page->va == addr)
-				return NULL;
-		}
-	}*/
-	if ((file >= STDIN && file <= STDERR) || file == NULL)
+    if (!addr || pg_round_down(addr) != addr || is_kernel_vaddr(addr) || is_kernel_vaddr(addr + length))
         return NULL;
 
-	if(file_length(file) == 0 || (int) length <=0)
-		return NULL;
+    if (offset != pg_round_down(offset) || offset % PGSIZE != 0)
+        return NULL;
 
-	return do_mmap(addr,length,writable,file,offset);
+    if (spt_find_page(&thread_current()->spt, addr))
+        return NULL;
+
+    struct file *file = get_file_from_fd(fd);
+
+    if ((file >= STDIN && file <= STDERR) || file == NULL)
+        return NULL;
+
+    if (file_length(file) == 0 || (long)length <= 0)
+        return NULL;
+
+    return do_mmap(addr, length, writable, file, offset);
 }
 
 void munmap_syscall(void *addr){

@@ -33,9 +33,8 @@ struct thread * get_thread(tid_t child_tid);
 
 struct lazy_load_arg{
     struct file *file;
-    off_t *ofs;
-    uint32_t read_bytes;
-    uint32_t zero_bytes;
+    off_t offset;
+    size_t length;
 };
 bool lazy_load_segment (struct page *page, void *aux);
 #endif
