@@ -31,8 +31,8 @@ typedef int tid_t;
 #define PRI_MAX 63                      /* Highest priority. */
 
 /** #Project 2: System Call */
-#define FDT_PAGES     3                     // test `multi-oom` 테스트용
-#define FDCOUNT_LIMIT FDT_PAGES * (1 << 9)  // 엔트리가 512개 인 이유: 페이지 크기 4kb / 파일 포인터 8byte
+#define FDT_PAGES 2                   // test `multi-oom` 테스트용
+#define FDT_COUNT_LIMIT 128  // 엔트리가 512개 인 이유: 페이지 크기 4kb / 파일 포인터 8byte
 
 /* A kernel thread or user process.
  *
@@ -134,7 +134,7 @@ typedef struct thread {
 #ifdef VM
 	/* Table for whole virtual memory owned by thread. */
 	struct supplemental_page_table spt;
-	uint64_t rsp_point;
+	void* rsp_point;
 #endif
 
 	/* Owned by thread.c. */

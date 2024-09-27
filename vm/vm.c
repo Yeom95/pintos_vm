@@ -8,8 +8,6 @@
 #include "include/threads/mmu.h"
 #include "userprog/process.h"
 
-static struct frame_table frame_table;
-
 /* Initializes the virtual memory subsystem by invoking each subsystem's
  * intialize codes. */
 void
@@ -22,6 +20,8 @@ vm_init (void) {
 	register_inspect_intr ();
 	/* DO NOT MODIFY UPPER LINES. */
 	/* TODO: Your code goes here. */
+	list_init(&frame_table);
+	lock_init(&frame_table_lock);
 }
 
 /* Get the type of the page. This function is useful if you want to know the
@@ -117,6 +117,7 @@ spt_insert_page (struct supplemental_page_table *spt UNUSED,
 
 void
 spt_remove_page (struct supplemental_page_table *spt, struct page *page) {
+	hash_delete(&spt->hash_table,&page->hash_elem);
 	vm_dealloc_page (page);
 	return true;
 }
@@ -139,6 +140,26 @@ vm_get_victim (void) {
 	struct frame *victim = NULL;
 	 /* TODO: The policy for eviction is up to you. */
 
+	struct thread *curr = thread_current();
+
+	lock_acquire(&frame_table_lock);
+	struct list_elem  *start = list_begin(&frame_table);
+	for(start; start != list_end(&frame_table); start = list_next(start)){
+		victim = list_entry(start,struct frame,frame_elem);
+		if(victim->page == NULL){
+			lock_release(&frame_table_lock);
+			return victim;
+		}
+
+		if(pml4_is_accessed(curr->pml4,victim->page->va))
+			pml4_set_accessed(curr->pml4,victim->page->va,0);
+		else
+		{
+			lock_release(&frame_table_lock);
+			return victim;
+		}
+	}
+	lock_release(&frame_table_lock);
 	return victim;
 }
 
@@ -148,7 +169,8 @@ static struct frame *
 vm_evict_frame (void) {
 	struct frame *victim UNUSED = vm_get_victim ();
 	/* TODO: swap out the victim and return the evicted frame. */
-
+	if(victim->page)
+		swap_out(victim->page);
 	return NULL;
 }
 
@@ -160,17 +182,21 @@ static struct frame *
 vm_get_frame (void) {
 	struct frame *frame = NULL;
 	/* TODO: Fill this function. */
-	frame = (struct frame*)malloc(sizeof(struct frame));
-	frame->page = NULL;
-	frame->kva = palloc_get_page(PAL_USER);
-	list_init(&frame_table.frames);
+	void *kva = palloc_get_page(PAL_USER);
 
-	if(frame->kva == NULL){
-		frame = vm_evict_frame();
-		frame->page = NULL;
-		return frame;
+	if(kva == NULL){
+		struct frame *victim = vm_evict_frame();
+		victim->page = NULL;
+		return victim;
 	}
-	list_push_back(&frame_table.frames,&frame->frame_elem);
+
+	frame = (struct frame*)malloc(sizeof(struct frame));
+	frame->kva = kva;
+	frame->page = NULL;
+
+	lock_acquire(&frame_table_lock);
+	list_push_back(&frame_table,&frame->frame_elem);
+	lock_release(&frame_table_lock);
 
 	ASSERT (frame != NULL);
 	ASSERT (frame->page == NULL);
@@ -191,7 +217,7 @@ vm_handle_wp (struct page *page UNUSED) {
 /* Return true on success */
 bool
 vm_try_handle_fault (struct intr_frame *f UNUSED, void *addr UNUSED,
-		bool user UNUSED, bool write UNUSED, bool not_present UNUSED) {
+	bool user UNUSED, bool write UNUSED, bool not_present UNUSED) {
 	struct supplemental_page_table *spt UNUSED = &thread_current ()->spt;
 	struct page *page = NULL;
 	/* TODO: Validate the fault */
@@ -201,7 +227,7 @@ vm_try_handle_fault (struct intr_frame *f UNUSED, void *addr UNUSED,
 
 	//physical page가 존재하지 않을 경우
 	if(not_present){
-		uint64_t current_rsp_point;
+		void *current_rsp_point;
 		if(user)
 			current_rsp_point = f->rsp;
 		else
@@ -209,7 +235,7 @@ vm_try_handle_fault (struct intr_frame *f UNUSED, void *addr UNUSED,
 		
 		//rsp - 8이 페이지 할당한 만큼의 영역 내에 있고, addr값이 rsp -8이며 addr가 USER STACK보다 아래에 있을 경우
 		bool is_stack_allowance_range = (USER_STACK - MAX_STACK_POINT <= current_rsp_point - 8
-		&& current_rsp_point - 8 == addr && addr <= USER_STACK);
+		&& current_rsp_point - 8 <= addr && addr <= USER_STACK);
 		//rsp이 페이지 할당한 만큼의 영역 내에 있고, addr값이 rsp 영역 내부에 있으며 addr가 USER STACK보다 아래에 있을 경우
 		bool is_in_allowance_range = (USER_STACK - MAX_STACK_POINT <= current_rsp_point
 		&& current_rsp_point <= addr && addr <= USER_STACK);
@@ -217,13 +243,13 @@ vm_try_handle_fault (struct intr_frame *f UNUSED, void *addr UNUSED,
 		if(is_stack_allowance_range || is_in_allowance_range){
 			vm_stack_growth(pg_round_down(addr));
 		}
-			page = spt_find_page(spt,addr);
-			if(page == NULL)
-				return false;
-			if(write == 1 && page->writable == 0)
-				return false;
+		page = spt_find_page(spt,addr);
+		if(page == NULL)
+			return false;
+		if(write == 1 && page->writable == 0)
+			return false;
 
-			return vm_do_claim_page(page);
+		return vm_do_claim_page(page);
 	}
 
 	return false;
@@ -309,17 +335,17 @@ bool supplemental_page_table_copy (struct supplemental_page_table *dst UNUSED, s
 			continue;
 		}
 
-				if(!vm_alloc_page(type,upage,writable)){
-					return false;
-				}
+		if(!vm_alloc_page(type,upage,writable)){
+			return false;
+		}
 
-				if(!vm_claim_page(upage))
-					return false;
+		if(!vm_claim_page(upage))
+			return false;
 
-				struct page *dst_page = spt_find_page(dst,upage);
-				memcpy(dst_page->frame->kva,src_page->frame->kva,PGSIZE);
-			}
-			return true;
+		struct page *dst_page = spt_find_page(dst,upage);
+		memcpy(dst_page->frame->kva,src_page->frame->kva,PGSIZE);
+	}
+	return true;
 }
 
 /* Free the resource hold by the supplemental page table */

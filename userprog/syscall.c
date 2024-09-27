@@ -26,6 +26,7 @@ struct lock filesys_lock;
 
 void syscall_entry (void);
 void syscall_handler (struct intr_frame *);
+tid_t fork(const char *thread_name, struct intr_frame *f);
 
 /* System call.
  *
@@ -72,7 +73,7 @@ switch (f->R.rax)
 		exit_syscall(f->R.rdi);
 		break;
 	case SYS_FORK:
-		f->R.rax =fork_syscall(f->R.rdi);
+		f->R.rax =fork_syscall(f->R.rdi,f);
 		break;
 	case SYS_EXEC:
 		if (exec_syscall(f->R.rdi) == -1)
@@ -174,25 +175,21 @@ void exit_syscall(int status){
 }
 
 
-pid_t fork_syscall(const char *thread_name){
-	check_address(thread_name);
-
-	return process_fork(thread_name,NULL);
+pid_t fork_syscall(const char *thread_name,struct intr_frame *f){
+	return process_fork(thread_name,f);
 }
 
 int exec_syscall(const char *cmd_line){
 	check_address(cmd_line);
 
-	off_t size = strlen(cmd_line)+1;
-	char *cmd_copy = palloc_get_page(PAL_ZERO);
+	char *cmd_line_copy;
+	cmd_line_copy = palloc_get_page(PAL_ZERO);
+	if (cmd_line_copy == NULL)
+		exit_syscall(-1);							  
+	strlcpy(cmd_line_copy, cmd_line, PGSIZE); 
 
-	if(cmd_copy == NULL){
-		return -1;
-	}
-
-	memcpy(cmd_copy,cmd_line,size);
-
-	return process_exec(cmd_copy);
+	if (process_exec(cmd_line_copy) == -1)
+		exit_syscall(-1);
 }
 
 int wait_syscall(pid_t tid){
@@ -200,9 +197,8 @@ int wait_syscall(pid_t tid){
 }
 
 bool create_syscall(const char *file, unsigned initial_size){
-	check_address(file);
-
 	lock_acquire(&filesys_lock);
+	check_address(file);
 	bool success = filesys_create(file,initial_size);
 	lock_release(&filesys_lock);
 
@@ -212,9 +208,7 @@ bool create_syscall(const char *file, unsigned initial_size){
 bool remove_syscall(const char *file){
 	check_address(file);
 
-	lock_acquire(&filesys_lock);
 	bool success = filesys_remove(file);
-	lock_release(&filesys_lock);
 
 	return success;
 }
@@ -253,68 +247,75 @@ int filesize_syscall(int fd){
 }
 
 int read_syscall(int fd, void *buffer, unsigned length){
-
 	check_address(buffer);
 
-    THREAD *curr = thread_current();
-	struct file *file = get_file_from_fd(fd);
+	char *ptr = (char *)buffer;
+	int bytes_read = 0;
 
-    if (file == NULL || file == STDOUT || file == STDERR)  // 빈 파일, stdout, stderr를 읽으려고 할 경우
-		return -1;
-
-    if (file == STDIN) {  // stdin -> console로 직접 입력
-        int i = 0;        // 쓰레기 값 return 방지
-		char c; 
-		unsigned char *buf = buffer;
-
-        for (; i < length; i++) {
-			c = input_getc();
-			*buf++ = c;
-            if (c == '\0')
-				break;
+	lock_acquire(&filesys_lock);
+	if (fd == STDIN_FILENO)
+	{
+		for (int i = 0; i < length; i++)
+		{
+			*ptr++ = input_getc();
+			bytes_read++;
 		}
-
-		return i;
+		lock_release(&filesys_lock);
 	}
+	else
+	{
+		if (fd < 2)
+		{
 
-    // 그 외의 경우
-    lock_acquire(&filesys_lock);
-    off_t bytes = file_read(file, buffer, length);
+			lock_release(&filesys_lock);
+			return -1;
+		}
+	struct file *file = get_file_from_fd(fd);
+		if (file == NULL)
+		{
+
+			lock_release(&filesys_lock);
+		return -1;
+		}
+		struct page *page = spt_find_page(&thread_current()->spt, buffer);
+		if (page && !page->writable)
+		{
+			lock_release(&filesys_lock);
+			exit_syscall(-1);
+		}
+		bytes_read = file_read(file, buffer, length);
     lock_release(&filesys_lock);
-
-    return bytes;
+	}
+	return bytes_read;
 }
 
 int write_syscall(int fd, const void *buffer, unsigned length){
-
 	check_address(buffer);
 
-	lock_acquire(&filesys_lock);
-	struct thread *curr = thread_current();
-	off_t bytes = -1;
-
-	struct file *file = get_file_from_fd(fd);
-
-	if(file == STDIN || file == NULL)
-		goto done;
-
-	if(file == STDOUT || file == STDERR){
+	int bytes_write = 0;
+	if (fd == STDOUT_FILENO)
+	{
 		putbuf(buffer, length);
-		bytes = length;
-		goto done;
+		bytes_write = length;
 	}
-	
-	bytes = file_write(file,buffer,length);
-
-done:
+	else
+	{
+		if (fd < 2)
+			return -1;
+		struct file *file = get_file_from_fd(fd);
+		if (file == NULL)
+			return -1;
+		lock_acquire(&filesys_lock);
+		bytes_write = file_write(file, buffer, length);
 	lock_release(&filesys_lock);
-	return bytes;
+	}
+	return bytes_write;
 }
 
 void seek_syscall(int fd, unsigned position){
 	struct file *file = get_file_from_fd(fd);
 
-	if(file == NULL || (file>=STDIN &&file<=STDERR))
+	if(file == NULL)
 		return;
 
 	file_seek(file,position);
@@ -334,9 +335,7 @@ void close_syscall(int fd){
 	struct file *file = get_file_from_fd(fd);
 
 	if(file == NULL)
-		goto done;
-
-	remove_file_in_fd_table(fd);
+		return;
 
 	if(file >= STDIN && file <= STDERR){
 		file = 0;
@@ -348,47 +347,32 @@ void close_syscall(int fd){
 	}else{
 		file->dup_count--;
 	}
+	remove_file_in_fd_table(fd);
 done:
 	return;
 }
 
 void *mmap_syscall(void *addr, size_t length, int writable, int fd, off_t offset){
-	struct supplemental_page_table spt = thread_current()->spt;
-	
-	if(!addr || addr != pg_round_down(addr))
+	if (!addr || addr != pg_round_down(addr))
 		return NULL;
 
-	if(!is_user_vaddr(addr) || !is_user_vaddr(addr + length))
+	if (offset != pg_round_down(offset))
 		return NULL;
 
-	if(spt_find_page(&thread_current()->spt,addr))
+	if (!is_user_vaddr(addr) || !is_user_vaddr(addr + length))
 		return NULL;
 
-	if(offset != pg_round_down(offset) || offset % PGSIZE != 0)
+	if (spt_find_page(&thread_current()->spt, addr))
 		return NULL;
 
-	struct file *file = get_file_from_fd(fd);
-	if(file == NULL)
+	struct file *f = get_file_from_fd(fd);
+	if (f == NULL)
 		return NULL;
 
-	/*if(length != pg_round_down(length)){
-		struct hash_iterator iterator;
-		hash_first(&iterator,&spt.hash_table);
-
-		while(hash_next(&iterator)){
-			struct page *found_page = hash_entry(hash_cur(&iterator),struct page,hash_elem);
-
-			if(found_page->va == addr)
-				return NULL;
-		}
-	}*/
-	if ((file >= STDIN && file <= STDERR) || file == NULL)
-        return NULL;
-
-	if(file_length(file) == 0 || (int) length <=0)
+	if (file_length(f) == 0 || (int)length <= 0)
 		return NULL;
 
-	return do_mmap(addr,length,writable,file,offset);
+	return do_mmap(addr, length, writable, f, offset); 
 }
 
 void munmap_syscall(void *addr){

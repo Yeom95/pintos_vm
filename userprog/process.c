@@ -81,8 +81,8 @@ initd (void *f_name) {
 tid_t
 process_fork (const char *name, struct intr_frame *if_ UNUSED) {
 	THREAD *curr = thread_current();
-	struct intr_frame *tf = (pg_round_up(rrsp()) - sizeof(struct intr_frame));
-	memcpy(&curr->parent_if, tf,sizeof(struct intr_frame));
+	//struct intr_frame *tf = (pg_round_up(rrsp()) - sizeof(struct intr_frame));
+	memcpy(&curr->parent_if, if_,sizeof(struct intr_frame));
 
 	tid_t tid = thread_create(name,PRI_DEFAULT,__do_fork,curr);
 
@@ -176,17 +176,17 @@ __do_fork (void *aux) {
 		goto error;
 #endif
 
-	if(parent->fd_idx >= FDCOUNT_LIMIT)
+	if(parent->fd_idx >= FDT_COUNT_LIMIT)
 		goto error;
 
 	current->fd_idx = parent->fd_idx;
 	struct file *file;
-	for (int fd = 0; fd < FDCOUNT_LIMIT ; fd ++){
+	for (int fd = 0; fd < FDT_COUNT_LIMIT ; fd ++){
 		file = parent->fd_table[fd];
 		if (file == NULL)
 			continue;
 
-		if (file >STDERR){
+		if (file > 2){
 			current->fd_table[fd] = file_duplicate(file);
 		}else{
 			current->fd_table[fd] = file;
@@ -225,7 +225,7 @@ process_exec (void *f_name) {
 
 		// ==== argument parsing ====
 	// argv_list , argc_num 만들기
-	char *argv_list[25]; // pintos에서 command line의 길이에는 128바이트 제한이므로 인자를 담을 배열을 64로 지정
+	char *argv_list[64]; // pintos에서 command line의 길이에는 128바이트 제한이므로 인자를 담을 배열을 64로 지정
 	char *token, *save_ptr;
 	int agrc_num = 0;
 
@@ -241,7 +241,9 @@ process_exec (void *f_name) {
 	// ==== argument parsing ====
 
 	/* And then load the binary */
-	success = load (file_name, &_if);
+	lock_acquire(&filesys_lock);
+	success = load(file_name, &_if);
+	lock_release(&filesys_lock);
 	if (!success){
 		palloc_free_page (file_name);
 		return -1;
@@ -430,9 +432,6 @@ load (const char *file_name, struct intr_frame *if_) {
 		goto done;
 	}
 
-	t->running_file = file;
-	file_deny_write(file);
-
 	/* Read and verify executable header. */
 	if (file_read (file, &ehdr, sizeof ehdr) != sizeof ehdr
 			|| memcmp (ehdr.e_ident, "\177ELF\2\1\1", 7)
@@ -498,10 +497,12 @@ load (const char *file_name, struct intr_frame *if_) {
 		}
 	}
 
+	t->running_file = file;
+	file_deny_write(file);
+
 	/* Set up stack. */
 	if (!setup_stack (if_))
 		goto done;
-
 
 	/* Start address. */
 	if_->rip = ehdr.e_entry;
@@ -511,9 +512,7 @@ load (const char *file_name, struct intr_frame *if_) {
 
 done:
 	/* We arrive here whether the load is successful or not. */
-	if(!success){
-		file_close (file);
-	}
+
 	return success;
 }
 
@@ -816,7 +815,7 @@ int process_add_file(struct file *f){
 	struct thread *curr = thread_current();
 	struct file **fd_table = curr->fd_table;
 
-	if(curr->fd_idx >= FDCOUNT_LIMIT)
+	if(curr->fd_idx >= FDT_COUNT_LIMIT)
 		return -1;
 
 	while(fd_table[curr->fd_idx]!=NULL){
@@ -830,7 +829,7 @@ int process_add_file(struct file *f){
 struct file *get_file_from_fd(int fd){
 	struct thread *curr = thread_current();
 
-	if(fd<0 || fd >= FDCOUNT_LIMIT){
+	if(fd < 2 || fd >= FDT_COUNT_LIMIT){
 		return NULL;
 	}
 
@@ -841,14 +840,14 @@ struct file *get_file_from_fd(int fd){
 int remove_file_in_fd_table(int fd) {
     struct thread *curr = thread_current();
 
-    if (fd < 0 || fd >= FDCOUNT_LIMIT)
+    if (fd < 0 || fd >= FDT_COUNT_LIMIT)
         return -1;
 
     curr->fd_table[fd] = NULL;
     return 0;
 }
 
-struct thread * get_thread(tid_t child_tid){
+struct thread *get_thread(tid_t child_tid){
 	struct list_elem *elem;
 	struct thread *parent = thread_current();
 

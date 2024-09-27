@@ -13,7 +13,6 @@ void syscall_init (void);
 
 void halt_syscall();
 void exit_syscall(int status);
-pid_t fork_syscall(const char *thread_name);
 int exec_syscall(const char *cmd_line);
 int wait_syscall(pid_t tid);
 bool create_syscall(const char *file, unsigned initial_size);
@@ -28,6 +27,6 @@ void close_syscall(int fd);
 void *mmap_syscall(void *addr, size_t length, int writable, int fd, off_t offset);
 void munmap_syscall(void *addr);
 /** #Project 2: System Call */
-extern struct lock filesys_lock;  // 파일 읽기/쓰기 용 lock
+struct lock filesys_lock;  // 파일 읽기/쓰기 용 lock
 #endif /* userprog/syscall.h */
 

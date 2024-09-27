@@ -206,7 +206,7 @@ tid_t thread_create(const char *name, int priority,
     t->fd_idx = 3;
     t->fd_table[0] = STDIN;   // stdin 예약된 자리 (dummy)
     t->fd_table[1] = STDOUT;  // stdout 예약된 자리 (dummy)
-    t->fd_table[2] = STDERR;  // stderr 예약된 자리 (dummy)
+    //t->fd_table[2] = STDERR;  // stderr 예약된 자리 (dummy)
     /** ---------------------------------------- */
 
     /** #Project 2: System Call - 현재 스레드의 자식 리스트에 추가 */
@@ -773,16 +773,20 @@ void donate_priority(void)
 	int depth;
 	struct thread *cur = thread_current();
 	int DEPTH_NESTED_PRIORITY = 8;
+
+	int priority = cur->priority;
+
 	for (depth = 0; depth < DEPTH_NESTED_PRIORITY; depth++)
 	{
 		// 현재 스레드가 lock을 기다리고 있는 상태가 아니면(lock 소유하고 있거나 영향이 없다면) 탈출
 		// 보통 다중 우선순위를 계산해야되는 경우면 순서상 마지막 스레드다
-		if (!cur->wait_lock)
+		if (!cur->wait_lock|| cur->wait_lock->holder == NULL)
 			return;
 
 		struct thread *lock_holder = cur->wait_lock->holder;
 
-		lock_holder->priority = cur->priority;
+		if (lock_holder->priority < priority)
+			lock_holder->priority = priority;
 		cur = lock_holder;
 	}
 }

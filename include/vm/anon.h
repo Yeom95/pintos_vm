@@ -5,6 +5,8 @@ struct page;
 enum vm_type;
 
 struct anon_page {
+    /*swap out 될 때 이 페이지가 저장된 slot 번호*/
+    uint32_t slot_no;
 };
 
 void vm_anon_init (void);

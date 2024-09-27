@@ -4,9 +4,11 @@
 #include "lib/kernel/hash.h"
 #include "threads/palloc.h"
 #include "threads/synch.h"
+#include "threads/vaddr.h"
 
 /* max stack size is 1MB */
 #define MAX_STACK_POINT (1 << 20)
+#define SECTORS_PER_PAGE 8
 
 enum vm_type {
 	/* page not initialized */
@@ -74,6 +76,12 @@ struct frame {
 	struct list_elem frame_elem;
 };
 
+struct slot{
+	struct page *page;
+	uint32_t slot_no;
+	struct list_elem swap_elem;
+};
+
 /* The function table for page operations.
  * This is one way of implementing "interface" in C.
  * Put the table of "method" into the struct's member, and
@@ -95,13 +103,6 @@ struct page_operations {
  * All designs up to you for this. */
 struct supplemental_page_table {
 	struct hash hash_table;
-};
-
-struct frame_table {
-	struct list frames;
-	struct list_elem *examing_pointer;
-	struct list_elem *resetting_pointer;
-	struct lock frame_table_lock;
 };
 
 #include "threads/thread.h"
@@ -129,5 +130,10 @@ bool vm_alloc_page_with_initializer (enum vm_type type, void *upage,
 void vm_dealloc_page (struct page *page);
 bool vm_claim_page (void *va);
 enum vm_type page_get_type (struct page *page);
+
+struct list swap_table;
+struct list frame_table;
+struct list swap_table_lock;
+struct lock frame_table_lock;
 
 #endif  /* VM_VM_H */
