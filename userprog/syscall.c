@@ -26,7 +26,7 @@ struct lock filesys_lock;
 
 void syscall_entry (void);
 void syscall_handler (struct intr_frame *);
-tid_t fork(const char *thread_name, struct intr_frame *f);
+tid_t fork_syscall(const char *thread_name, struct intr_frame *f);
 
 /* System call.
  *
@@ -213,28 +213,20 @@ bool remove_syscall(const char *file){
 	return success;
 }
 
-int open_syscall(const char *file){
-	check_address(file);
-
+int open_syscall(const char *file_name){
+	check_address(file_name);
 	lock_acquire(&filesys_lock);
-	struct file *new_file = filesys_open(file);
-
-	if(new_file==NULL){
-		goto err;
+	struct file *file = filesys_open(file_name);
+	if (file == NULL)
+	{
+		lock_release(&filesys_lock);
+		return -1;
 	}
-
-	int fd = process_add_file(new_file);
-
-	if(fd == -1){
-		file_close(new_file);
-	}
-
+	int fd = process_add_file(file);
+	if (fd == -1)
+		file_close(file);
 	lock_release(&filesys_lock);
 	return fd;
-
-err:
-	lock_release(&filesys_lock);
-	return -1;
 }
 
 int filesize_syscall(int fd){
@@ -331,25 +323,11 @@ int tell_syscall(int fd){
 }
 
 void close_syscall(int fd){
-	struct thread *curr = thread_current();
 	struct file *file = get_file_from_fd(fd);
-
-	if(file == NULL)
+	if (file == NULL)
 		return;
-
-	if(file >= STDIN && file <= STDERR){
-		file = 0;
-		goto done;
-	}
-	
-	if(file->dup_count == 0){
-		file_close(file);
-	}else{
-		file->dup_count--;
-	}
+	file_close(file);
 	remove_file_in_fd_table(fd);
-done:
-	return;
 }
 
 void *mmap_syscall(void *addr, size_t length, int writable, int fd, off_t offset){

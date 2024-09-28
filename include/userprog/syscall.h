@@ -27,6 +27,6 @@ void close_syscall(int fd);
 void *mmap_syscall(void *addr, size_t length, int writable, int fd, off_t offset);
 void munmap_syscall(void *addr);
 /** #Project 2: System Call */
-struct lock filesys_lock;  // 파일 읽기/쓰기 용 lock
+extern struct lock filesys_lock;  // 파일 읽기/쓰기 용 lock
 #endif /* userprog/syscall.h */
 

@@ -71,8 +71,6 @@ vm_alloc_page_with_initializer (enum vm_type type, void *upage, bool writable,
 		case VM_FILE:
 			page_initializer = file_backed_initializer;
 			break;
-		default:
-			break;
 		}
 
 		uninit_new(p,upage,init,type,aux,page_initializer);
@@ -206,7 +204,7 @@ vm_get_frame (void) {
 /* Growing the stack. */
 static void
 vm_stack_growth (void *addr UNUSED) {
-	vm_alloc_page(VM_ANON | VM_MARKER_0,addr,1);
+	vm_alloc_page(VM_ANON | VM_MARKER_0,pg_round_down(addr),1);
 }
 
 /* Handle the fault on write_protected page */
@@ -235,13 +233,13 @@ vm_try_handle_fault (struct intr_frame *f UNUSED, void *addr UNUSED,
 		
 		//rsp - 8이 페이지 할당한 만큼의 영역 내에 있고, addr값이 rsp -8이며 addr가 USER STACK보다 아래에 있을 경우
 		bool is_stack_allowance_range = (USER_STACK - MAX_STACK_POINT <= current_rsp_point - 8
-		&& current_rsp_point - 8 <= addr && addr <= USER_STACK);
+		&& current_rsp_point - 8 == addr && addr <= USER_STACK);
 		//rsp이 페이지 할당한 만큼의 영역 내에 있고, addr값이 rsp 영역 내부에 있으며 addr가 USER STACK보다 아래에 있을 경우
 		bool is_in_allowance_range = (USER_STACK - MAX_STACK_POINT <= current_rsp_point
 		&& current_rsp_point <= addr && addr <= USER_STACK);
 		
 		if(is_stack_allowance_range || is_in_allowance_range){
-			vm_stack_growth(pg_round_down(addr));
+			vm_stack_growth(addr);
 		}
 		page = spt_find_page(spt,addr);
 		if(page == NULL)
@@ -300,21 +298,21 @@ supplemental_page_table_init (struct supplemental_page_table *spt UNUSED) {
 
 /* Copy supplemental page table from src to dst */
 bool supplemental_page_table_copy (struct supplemental_page_table *dst UNUSED, struct supplemental_page_table *src UNUSED) {
-			struct hash_iterator iterator;
-			hash_first(&iterator,&src->hash_table);
+	struct hash_iterator iterator;
+	hash_first(&iterator,&src->hash_table);
 
-			while(hash_next(&iterator)){
-				struct page *src_page = hash_entry(hash_cur(&iterator),struct page,hash_elem);
-				enum vm_type type = src_page->operations->type;
-				void *upage = src_page->va;
-				bool writable = src_page->writable;
+	while(hash_next(&iterator)){
+		struct page *src_page = hash_entry(hash_cur(&iterator),struct page,hash_elem);
+		enum vm_type type = src_page->operations->type;
+		void *upage = src_page->va;
+		bool writable = src_page->writable;
 
-				if(type == VM_UNINIT){
-					vm_initializer *initializer = src_page->uninit.init;
-					void *aux = src_page->uninit.aux;
-					vm_alloc_page_with_initializer(VM_ANON,upage,writable,initializer,aux);
-					continue;
-				}
+		if(type == VM_UNINIT){
+			vm_initializer *initializer = src_page->uninit.init;
+			void *aux = src_page->uninit.aux;
+			vm_alloc_page_with_initializer(VM_ANON,upage,writable,initializer,aux);
+			continue;
+		}
 
 		if(type == VM_FILE){
 			struct lazy_load_arg *file_aux = malloc(sizeof(struct lazy_load_arg));
