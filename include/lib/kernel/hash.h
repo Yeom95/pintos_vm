@@ -96,5 +96,11 @@ bool hash_empty (struct hash *);
 uint64_t hash_bytes (const void *, size_t);
 uint64_t hash_string (const char *);
 uint64_t hash_int (int);
+/** Project 3: Memory Management */
+uint64_t hash_func(const struct hash_elem *p_,void *aux);
+bool less_func(const struct hash_elem *a_,const struct hash_elem *b_,void *aux);
 
+
+/** Project 3: Anonymous Page */
+void hash_destructor(struct hash_elem *e, void *aux);
 #endif /* lib/kernel/hash.h */

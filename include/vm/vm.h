@@ -1,7 +1,12 @@
 #ifndef VM_VM_H
 #define VM_VM_H
 #include <stdbool.h>
+#include "lib/kernel/hash.h"
 #include "threads/palloc.h"
+#include "threads/synch.h"
+
+/* max stack size is 1MB */
+#define MAX_STACK_POINT (1 << 20)
 
 enum vm_type {
 	/* page not initialized */
@@ -46,6 +51,9 @@ struct page {
 	struct frame *frame;   /* Back reference for frame */
 
 	/* Your implementation */
+	struct hash_elem hash_elem;
+	bool writable;
+	bool accessible; /** Project 3: Copy On Write (Extra) */
 
 	/* Per-type data are binded into the union.
 	 * Each function automatically detects the current union */
@@ -63,6 +71,7 @@ struct page {
 struct frame {
 	void *kva;
 	struct page *page;
+	struct list_elem frame_elem;
 };
 
 /* The function table for page operations.
@@ -85,6 +94,7 @@ struct page_operations {
  * We don't want to force you to obey any specific design for this struct.
  * All designs up to you for this. */
 struct supplemental_page_table {
+	struct hash hash_table;
 };
 
 #include "threads/thread.h"
@@ -108,5 +118,5 @@ bool vm_alloc_page_with_initializer (enum vm_type type, void *upage,
 void vm_dealloc_page (struct page *page);
 bool vm_claim_page (void *va);
 enum vm_type page_get_type (struct page *page);
-
+bool vm_handle_wp(struct page *page UNUSED);
 #endif  /* VM_VM_H */

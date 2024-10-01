@@ -18,6 +18,9 @@ typedef int pid_t;
 #include "threads/palloc.h"
 #include "userprog/process.h"
 
+/* Project 3: Virtual Memory */
+#include "include/vm/file.h"
+
 struct lock filesys_lock;
 /** -----------------------  */
 
@@ -57,7 +60,9 @@ void
 syscall_handler (struct intr_frame *f UNUSED) {
 	// TODO: Your implementation goes here.
 	// printf ("system call!\n");
-
+#ifdef VM
+	thread_current()->stack_pointer = f->rsp;
+#endif
 switch (f->R.rax)
 	{
 	case SYS_HALT:
@@ -105,6 +110,14 @@ switch (f->R.rax)
 	case SYS_CLOSE:
 		close_syscall(f->R.rdi);
 		break;
+#ifdef VM
+	case SYS_MMAP:
+		f->R.rax = mmap_syscall(f->R.rdi,f->R.rsi,f->R.rdx,f->R.r10,f->R.r8);
+		break;
+	case SYS_MUNMAP:
+		munmap_syscall(f->R.rdi);
+		break;
+#endif
 	default:
 		exit_syscall(-1);
 		break;
@@ -112,12 +125,37 @@ switch (f->R.rax)
 }
 
 // ================================= utils =================================
+
+#ifndef VM
+/** #Project 2: System Call */
 void check_address(void *addr) {
-    struct thread *curr = thread_current();
+    thread_t *curr = thread_current();
 
     if (is_kernel_vaddr(addr) || addr == NULL || pml4_get_page(curr->pml4, addr) == NULL)
         exit_syscall(-1);
 }
+#else
+/** #Project 3: Anonymous Page */
+struct page *check_address(void *addr) {
+    THREAD *curr = thread_current();
+
+    if (is_kernel_vaddr(addr) || addr == NULL)
+        exit_syscall(-1);
+
+    return spt_find_page(&curr->spt, addr);
+}
+
+/** Project 3: Memory Mapped Files - 버퍼 유효성 검사 */
+void check_valid_buffer(void *buffer, size_t size, bool writable) {
+    for (size_t i = 0; i < size; i++) {
+        /* buffer가 spt에 존재하는지 검사 */
+        struct page *page = check_address(buffer + i);
+
+        if (!page || (writable && !(page->writable)))
+            exit_syscall(-1);
+    }
+}
+#endif
 
 
 // ================================= system call functions =================================
@@ -215,28 +253,34 @@ int filesize_syscall(int fd){
 }
 
 int read_syscall(int fd, void *buffer, unsigned length){
-	check_address(buffer);
 
-	struct thread *curr = thread_current();
+#ifdef VM
+    check_valid_buffer(buffer, length, true);
+#endif
+    check_address(buffer);
+
+    THREAD *curr = thread_current();
 	struct file *file = get_file_from_fd(fd);
 
-	if(file == NULL || file == STDOUT || file == STDERR)
+    if (file == NULL || file == STDOUT || file == STDERR)  // 빈 파일, stdout, stderr를 읽으려고 할 경우
 		return -1;
 
-	if(file == STDIN){
-		int i = 0;
+    if (file == STDIN) {  // stdin -> console로 직접 입력
+        int i = 0;        // 쓰레기 값 return 방지
 		char c; 
 		unsigned char *buf = buffer;
 
-		for (; i<length;i++){
+        for (; i < length; i++) {
 			c = input_getc();
 			*buf++ = c;
-			if(c=='\0')
+            if (c == '\0')
 				break;
 		}
+
 		return i;
 	}
 
+    // 그 외의 경우
     lock_acquire(&filesys_lock);
     off_t bytes = file_read(file, buffer, length);
     lock_release(&filesys_lock);
@@ -245,7 +289,10 @@ int read_syscall(int fd, void *buffer, unsigned length){
 }
 
 int write_syscall(int fd, const void *buffer, unsigned length){
-	check_address(buffer);
+#ifdef VM
+    check_valid_buffer(buffer, length, true);
+#endif
+    check_address(buffer);
 
 	lock_acquire(&filesys_lock);
 	struct thread *curr = thread_current();
@@ -307,5 +354,33 @@ void close_syscall(int fd){
 		file->dup_count--;
 	}
 done:
+	return;
+}
+
+void *mmap_syscall(void *addr, size_t length, int writable, int fd, off_t offset){
+	struct supplemental_page_table spt = thread_current()->spt;
+    if (!addr || pg_round_down(addr) != addr || is_kernel_vaddr(addr) || is_kernel_vaddr(addr + length))
+        return NULL;
+
+    if (offset != pg_round_down(offset) || offset % PGSIZE != 0)
+        return NULL;
+
+    if (spt_find_page(&thread_current()->spt, addr))
+        return NULL;
+
+    struct file *file = get_file_from_fd(fd);
+
+    if ((file >= STDIN && file <= STDERR) || file == NULL)
+        return NULL;
+
+    if (file_length(file) == 0 || (long)length <= 0)
+        return NULL;
+
+    return do_mmap(addr, length, writable, file, offset);
+}
+
+void munmap_syscall(void *addr){
+	do_munmap(addr);
+
 	return;
 }
