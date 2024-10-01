@@ -11,8 +11,7 @@ static struct list frame_table;
 
 /* Initializes the virtual memory subsystem by invoking each subsystem's
  * intialize codes. */
-void
-vm_init (void) {
+void vm_init (void) {
 	vm_anon_init ();
 	vm_file_init ();
 #ifdef EFILESYS  /* For project 4 */
@@ -46,9 +45,8 @@ static struct frame *vm_evict_frame (void);
 /* Create the pending page object with initializer. If you want to create a
  * page, do not create it directly and make it through this function or
  * `vm_alloc_page`. */
-bool
-vm_alloc_page_with_initializer (enum vm_type type, void *upage, bool writable,
-		vm_initializer *init, void *aux) {
+//page를 할당해서 어떤 페이지인지 정보를 담아두기
+bool vm_alloc_page_with_initializer (enum vm_type type, void *upage, bool writable, vm_initializer *init, void *aux) {
 
 	ASSERT (VM_TYPE(type) != VM_UNINIT)
 
@@ -123,8 +121,8 @@ spt_remove_page (struct supplemental_page_table *spt, struct page *page) {
 }
 
 /* Get the struct frame, that will be evicted. */
-static struct frame *
-vm_get_victim (void) {
+// clock 방식으로 victim page를 선택
+static struct frame *vm_get_victim (void) {
     struct frame *victim = NULL;
     /* TODO: The policy for eviction is up to you. */
     struct thread *curr = thread_current();
@@ -144,6 +142,7 @@ vm_get_victim (void) {
 
 /* Evict one page and return the corresponding frame.
  * Return NULL on error.*/
+// 희생 페이지를 선택해서 swap out 진행
 static struct frame *
 vm_evict_frame (void) {
 	struct frame *victim UNUSED = vm_get_victim ();
@@ -153,14 +152,14 @@ vm_evict_frame (void) {
 	}
 
 	return victim;
-}
+} 
 
 /* palloc() and get frame. If there is no available page, evict the page
  * and return it. This always return valid address. That is, if the user pool
  * memory is full, this function evicts the frame to get the available memory
  * space.*/
-static struct frame *
-vm_get_frame (void) {
+// VM에서 kernel 영역의 유저 풀에서 페이지를 할당하기 , 다 찼을 때 swapout을 해서 frame을 가져오고 / 있으면 frame table에 추가한다.
+static struct frame * vm_get_frame (void) {
     /* TODO: Fill this function. */
     struct frame *frame = (struct frame *)malloc(sizeof(struct frame));
     ASSERT(frame != NULL);
@@ -195,6 +194,7 @@ vm_stack_growth (void *addr UNUSED) {
 /* Handle the fault on write_protected page */
 bool
 vm_handle_wp (struct page *page UNUSED) {
+    // 읽기 전용 페이지  인자 
 	if (!page->accessible)
         return false;
 
@@ -222,7 +222,7 @@ bool vm_try_handle_fault (struct intr_frame *f UNUSED, void *addr UNUSED, bool u
     if (addr == NULL || is_kernel_vaddr(addr))
         return false;
 
-    /** Project 3: Copy On Write (Extra) - 접근한 메모리의 page가 존재하고 write 요청인데 write protected인 경우라 발생한 fault일 경우*/
+    /** Project 3: Copy On Write (Extra) - 접근한 메모리의 page가 존재하고 write 요청인데 write protected인 경우라 발생한 fault일 경우 write 0 읽기전용  write 1 쓰기 가능*/
     if (!not_present && write)
         return vm_handle_wp(page);
 
@@ -315,9 +315,7 @@ supplemental_page_table_init (struct supplemental_page_table *spt UNUSED) {
 /** Project 3: Anonymous Page - Copy supplemental page table from src to dst */
 bool supplemental_page_table_copy(struct supplemental_page_table *dst UNUSED, struct supplemental_page_table *src UNUSED) {
     struct hash_iterator iter;
-    struct page *dst_page;
-    struct aux *aux;
-
+    
     hash_first(&iter, &src->hash_table);
 
     while (hash_next(&iter)) {
@@ -336,7 +334,7 @@ bool supplemental_page_table_copy(struct supplemental_page_table *dst UNUSED, st
                 if (!vm_alloc_page_with_initializer(type, upage, writable, NULL, &src_page->file))
                     goto err;
 
-                dst_page = spt_find_page(dst, upage);  // 대응하는 물리 메모리 데이터 복제
+                struct page *dst_page = spt_find_page(dst, upage);  // 대응하는 물리 메모리 데이터 복제
                 if (!file_backed_initializer(dst_page, type, NULL))
                     goto err;
 
@@ -349,13 +347,6 @@ bool supplemental_page_table_copy(struct supplemental_page_table *dst UNUSED, st
             case VM_ANON:                                   // src 타입이 anon인 경우
                 if (!vm_alloc_page(type, upage, writable))  // UNINIT 페이지 생성 및 초기화
                     goto err;
-
-                // if (!vm_claim_page(upage))  // 물리 메모리와 매핑하고 initialize
-                //     goto err;
-
-                // struct page *dst_page = spt_find_page(dst, upage);  // 대응하는 물리 메모리 데이터 복제
-                // memcpy(dst_page->frame->kva, src_page->frame->kva, PGSIZE);
-
                 /** Project 3: Copy On Write (Extra) - 메모리에 load된 데이터를 write하지 않는 이상 똑같은 메모리를 사용하는데
                  *  2개의 복사본을 만드는 것은 메모리가 낭비가 난다. 따라서 write 요청이 들어왔을 때만 해당 페이지에 대한 물리메모리를
                  *  할당하고 맵핑하면 된다. */

@@ -100,6 +100,7 @@ anon_destroy (struct page *page) {
     /** Project 3: Swap In/Out - 점거중인 bitmap 삭제 */
     if (anon_page->slot != BITMAP_ERROR)
         bitmap_reset(swap_table, anon_page->slot);
+        // 스왑 테이블에서 해당 슬롯을 해제하여 다시 사용할 수 있도록 합니다.
 
     /** Project 3: Anonymous Page - 점거중인 frame 삭제 */
     if (page->frame) {
