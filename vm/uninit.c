@@ -54,6 +54,8 @@ uninit_initialize (struct page *page, void *kva) {
 	/* TODO: You may need to fix this function. */
 	return uninit->page_initializer (page, uninit->type, kva) &&
 		(init ? init (page, aux) : true);
+		//page_initialier->anon_initializer,file_backed_initializer
+		//init (page,aux) -> lazy_load_segment(page,lazy_load_arg)
 }
 
 /* Free the resources hold by uninit_page. Although most of pages are transmuted

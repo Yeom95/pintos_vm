@@ -9,7 +9,13 @@ typedef int pid_t;
 
 void syscall_init (void);
 
-
+/** ----- #Project 2: System Call ----- */
+#ifndef VM
+void check_address(void *addr);
+#else
+/** #Project 3: Anonymous Page */
+struct page *check_address(void *addr);
+#endif
 
 void halt_syscall();
 void exit_syscall(int status);

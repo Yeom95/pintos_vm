@@ -259,12 +259,12 @@ lock_try_acquire (struct lock *lock) {
 void lock_release (struct lock *lock) {
 	ASSERT (lock != NULL);
 	ASSERT (lock_held_by_current_thread (lock));
+	lock->holder = NULL;
 
 	//lock을 release할 때, 해제할 lock을 기다리는 스레드들을 donation 리스트에서 제거한다
 	remove_from_donation_list(lock);
 	//donation 리스트가 변동되었으니,우선순위를 재설정한다
 	refresh_priority();
-	lock->holder = NULL;
 	sema_up (&lock->semaphore);
 }
 

@@ -53,7 +53,7 @@ struct page {
 	/* Your implementation */
 	struct hash_elem hash_elem;
 	bool writable;
-	int mapped_page_count;
+	bool accessible; /** Project 3: Copy On Write (Extra) */
 
 	/* Per-type data are binded into the union.
 	 * Each function automatically detects the current union */
@@ -97,13 +97,6 @@ struct supplemental_page_table {
 	struct hash hash_table;
 };
 
-struct frame_table {
-	struct list frames;
-	struct list_elem *examing_pointer;
-	struct list_elem *resetting_pointer;
-	struct lock frame_table_lock;
-};
-
 #include "threads/thread.h"
 void supplemental_page_table_init (struct supplemental_page_table *spt);
 bool supplemental_page_table_copy (struct supplemental_page_table *dst,
@@ -113,10 +106,6 @@ struct page *spt_find_page (struct supplemental_page_table *spt,
 		void *va);
 bool spt_insert_page (struct supplemental_page_table *spt, struct page *page);
 void spt_remove_page (struct supplemental_page_table *spt, struct page *page);
-unsigned page_hash(const struct hash_elem *p_,void *aux UNUSED);
-bool page_less(const struct hash_elem *a_,const struct hash_elem *b_,void *aux UNUSED);
-struct page* page_lookup(const void *va);
-void hash_page_destroy(struct hash_elem *e,void *aux);
 
 void vm_init (void);
 bool vm_try_handle_fault (struct intr_frame *f, void *addr, bool user,
@@ -129,5 +118,5 @@ bool vm_alloc_page_with_initializer (enum vm_type type, void *upage,
 void vm_dealloc_page (struct page *page);
 bool vm_claim_page (void *va);
 enum vm_type page_get_type (struct page *page);
-
+bool vm_handle_wp(struct page *page UNUSED);
 #endif  /* VM_VM_H */

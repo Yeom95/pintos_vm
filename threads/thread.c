@@ -476,10 +476,6 @@ init_thread(struct thread *t, const char *name, int priority)
     /** -----------------------  */
 #endif
 
-#ifdef VM
-	t->rsp_point = 0;
-#endif
-
 }
 
 /* Chooses and returns the next thread to be scheduled.  Should
@@ -772,18 +768,23 @@ void donate_priority(void)
 {
 	int depth;
 	struct thread *cur = thread_current();
+	int priority = cur->priority;
 	int DEPTH_NESTED_PRIORITY = 8;
 	for (depth = 0; depth < DEPTH_NESTED_PRIORITY; depth++)
 	{
 		// 현재 스레드가 lock을 기다리고 있는 상태가 아니면(lock 소유하고 있거나 영향이 없다면) 탈출
 		// 보통 다중 우선순위를 계산해야되는 경우면 순서상 마지막 스레드다
-		if (!cur->wait_lock)
+		if (!cur->wait_lock || !cur->wait_lock->holder)
 			return;
 
-		struct thread *lock_holder = cur->wait_lock->holder;
+		cur = cur->wait_lock->holder;
+        cur->priority = priority;
 
-		lock_holder->priority = cur->priority;
-		cur = lock_holder;
+
+		// struct thread *lock_holder = cur->wait_lock->holder;
+
+		// lock_holder->priority = cur->priority;
+		// cur = lock_holder;
 	}
 }
 
